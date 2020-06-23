@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
-	<group ns="X1">
+	<!-- <group ns="X1"> -->
   <node pkg="ground_finder" type="traversability_mapping" name="traversability_mapping" output="screen">
-  	<!-- <remap from="octomap_binary" to="merged_map"/> -->
-	<remap from="octomap_binary" to="octomap_binary"/>
+  	<remap from="octomap_binary" to="merged_map"/>
+	<!-- <remap from="octomap_binary" to="octomap_binary"/> -->
 	<remap from="edt" to="edt"/>
 
 	<!-- Params -->
@@ -19,5 +19,5 @@
 	<!-- <param name="bbx_xy" value="8.0"/> -->
 	<!-- <param name="bbx_z" value ="3.0"/> -->
   </node>
-	</group>
+	<!-- </group> -->
 </launch>
