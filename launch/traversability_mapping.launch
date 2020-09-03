@@ -16,7 +16,7 @@
 	<param name="truncation_distance" value = "3.0"/>
 	<param name="inflate_distance" value = "0.2"/>
 	<param name="full_map_ticks" value = "120"/>
-	<param name="filter_holes" value="true"/> <!-- true = holes are traversable -->
+	<param name="filter_holes" value="true"/> <!-- true = holes are not traversable -->
 	<!-- <param name="bbx_xy" value="8.0"/> -->
 	<!-- <param name="bbx_z" value ="3.0"/> -->
   </node>
