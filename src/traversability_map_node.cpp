@@ -71,6 +71,7 @@ class NodeManager
     float normal_curvature_threshold;
     float truncation_distance = 100.0; // meters
     float inflate_distance = 0.0; // meters
+    bool filter_holes = false;
     pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud;
     pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud;
     void CallbackOctomap(const octomap_msgs::Octomap::ConstPtr msg);
@@ -318,11 +319,13 @@ void NodeManager::FindGroundVoxels(std::string map_size)
         else {
           // ROS_INFO("Voxel below is unseen adding ground voxel.");
           // If it is, add the point to the ground PCL
-          pcl::PointXYZ ground_point;
-          ground_point.x = query[0];
-          ground_point.y = query[1];
-          ground_point.z = query[2];
-          ground_cloud_prefilter->points.push_back(ground_point);
+          if (filter_holes) {
+            pcl::PointXYZ ground_point;
+            ground_point.x = query[0];
+            ground_point.y = query[1];
+            ground_point.z = query[2];
+            ground_cloud_prefilter->points.push_back(ground_point);
+          }
           // ROS_INFO("Voxel added.");
         }
         // ROS_INFO("Ground node query deleted.");
@@ -348,7 +351,7 @@ void NodeManager::FindGroundVoxels(std::string map_size)
               // ROS_INFO("Node is seen.");
               // std::cout << node << std::endl;
               if (node->getOccupancy() >= 0.48) { // include points that have bottom neighbors that are unseen
-                // ROS_INFO("Voxel below is occupied or unseen, adding ground voxel.");
+                // ROS_INFO("Voxel below is occupied , adding ground voxel.");
                 // If it is, add the point to the ground PCL
                 pcl::PointXYZ ground_point;
                 ground_point.x = query[0];
@@ -361,11 +364,13 @@ void NodeManager::FindGroundVoxels(std::string map_size)
             else {
               // ROS_INFO("Voxel below is unseen, adding ground voxel.");
               // If it is, add the point to the ground PCL
-              pcl::PointXYZ ground_point;
-              ground_point.x = query[0];
-              ground_point.y = query[1];
-              ground_point.z = query[2];
-              ground_cloud_prefilter->points.push_back(ground_point);
+              if (filter_holes) {
+                pcl::PointXYZ ground_point;
+                ground_point.x = query[0];
+                ground_point.y = query[1];
+                ground_point.z = query[2];
+                ground_cloud_prefilter->points.push_back(ground_point);
+              }
               // ROS_INFO("Voxel added.");
             }
             // ROS_INFO("Ground node query deleted.");
@@ -553,6 +558,7 @@ int main(int argc, char **argv)
   n.param("traversability_mapping/use_tf", node_manager.use_tf, false);
   n.param("traversability_mapping/truncation_distance", node_manager.truncation_distance, (float)4.0);
   n.param("traversability_mapping/inflate_distance", node_manager.inflate_distance, (float)0.0);
+  n.param("traversability_mapping/filter_holes", node_manager.filter_holes, false);
   int full_map_ticks = 200;
   n.param("traversability_mapping/full_map_ticks", full_map_ticks, 200);
 
