@@ -19,6 +19,9 @@
 // Eigen
 #include <Eigen/Core>
 
+octomap::OcTree* map_octree;
+bool map_updated = false;
+
 void index3_xyz(const int index, double point[3], double min[3], int size[3], double voxel_size)
 {
   // x+y*sizx+z*sizx*sizy
@@ -55,15 +58,15 @@ class NodeManager
     ground_cloud (new pcl::PointCloud<pcl::PointXYZ>),
     edt_cloud (new pcl::PointCloud<pcl::PointXYZI>)
     {
-      map_octree = new octomap::OcTree(0.1);
+      // map_octree = new octomap::OcTree(0.1);
     }
     bool use_tf = false;
     std::string robot_frame_id;
     std::string fixed_frame_id;
     sensor_msgs::PointCloud2 ground_msg;
     sensor_msgs::PointCloud2 edt_msg;
-    octomap::OcTree* map_octree;
-    bool map_updated = false;
+    // octomap::OcTree* map_octree;
+    // bool map_updated = false;
     bool position_updated = false;
     int min_cluster_size;
     RobotState robot;
@@ -74,7 +77,7 @@ class NodeManager
     bool filter_holes = false;
     pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud;
     pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud;
-    void CallbackOctomap(const octomap_msgs::Octomap::ConstPtr msg);
+    // void CallbackOctomap(const octomap_msgs::Octomap::ConstPtr msg);
     void CallbackOdometry(const nav_msgs::Odometry msg);
     void FindGroundVoxels(std::string map_size);
     void UpdateRobotState();
@@ -115,7 +118,7 @@ void InflateObstacles(pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud, float infl
   return;
 }
 
-void NodeManager::CallbackOctomap(const octomap_msgs::Octomap::ConstPtr msg)
+void CallbackOctomap(const octomap_msgs::Octomap::ConstPtr msg)
 {
   if (msg->data.size() == 0) return;
   delete map_octree;
@@ -541,7 +544,7 @@ int main(int argc, char **argv)
   NodeManager node_manager;
 
   // Subscribers and Publishers
-  ros::Subscriber sub = n.subscribe("octomap_binary", 1, &NodeManager::CallbackOctomap, &node_manager);
+  ros::Subscriber sub = n.subscribe("octomap_binary", 1, CallbackOctomap);
   ros::Subscriber sub1 = n.subscribe("odometry", 1, &NodeManager::CallbackOdometry, &node_manager);
   ros::Publisher pub1 = n.advertise<sensor_msgs::PointCloud2>("ground", 5);
   ros::Publisher pub2 = n.advertise<sensor_msgs::PointCloud2>("edt", 5);
