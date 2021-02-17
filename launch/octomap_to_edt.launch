@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
-<group ns="A01">
-  <node pkg="ground_finder" type="octomap_to_edt" name="octomap_to_edt" output="screen">
-  	<remap from="octomap_binary" to="merged_map"/>
+<!-- <group ns="A03"> -->
+  <node pkg="ground_finder" type="octomap_to_edt" name="octomap_to_edt">
+  	<remap from="octomap_binary" to="/merged_map"/>
 		<!-- <remap from="octomap_binary" to="octomap_binary"/> -->
 		<remap from="edt" to="edt"/>
 
@@ -10,5 +10,5 @@
   	<param name="update_rate" value="1.0"/>
     <param name="fixed_frame_id" value="world"/>
   </node>
-</group>
+<!-- </group> -->
 </launch>

@@ -26,6 +26,7 @@ catkin_package(
 
 include_directories(
     "${PROJECT_SOURCE_DIR}/src/"
+    "${PROJECT_SOURCE_DIR}/include/"
     ${catkin_INCLUDE_DIRS}
     ${EIGEN_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIRS}
@@ -44,5 +45,10 @@ target_link_libraries(traversability_mapping
 
 add_executable(octomap_to_edt src/octomap_to_edt.cpp)
 target_link_libraries(octomap_to_edt
+  ${catkin_LIBRARIES}
+)
+
+add_executable(traversability_to_edt src/traversability_map_to_edt_node.cpp)
+target_link_libraries(traversability_to_edt
   ${catkin_LIBRARIES}
 )
