@@ -156,6 +156,8 @@ void CallbackOctomap(const octomap_msgs::Octomap::ConstPtr msg)
   if (msg->data.size() == 0) return;
   delete map_octree;
   map_octree = (octomap::RoughOcTree*)octomap_msgs::fullMsgToMap(*msg);
+  ROS_INFO("OcTree received of type:");
+  std::cout << map_octree->getTreeType() << std::endl;
   map_updated = true;
 }
 
@@ -303,6 +305,7 @@ void NodeManager::FindGroundVoxels(std::string map_size)
         pcl::PointXYZI query_point;
         query_point.x = query[0]; query_point.y = query[1]; query_point.z = query[2];
         query_point.intensity = it->getRough();
+        ROS_INFO_THROTTLE(0.5, "Current roughness = %0.1f", query_point.intensity);
         ground_cloud_traversable->points.push_back(query_point);
         ground_cloud_prefilter->points.push_back(query_point);
       } else {
