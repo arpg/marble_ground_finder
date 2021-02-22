@@ -50,5 +50,5 @@ target_link_libraries(octomap_to_edt
 
 # add_executable(traversability_to_edt src/traversability_map_to_edt_node.cpp)
 # target_link_libraries(traversability_to_edt
-  # ${catkin_LIBRARIES}
+#   ${catkin_LIBRARIES}
 # )
