@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
-	<group ns="X1">
+  <!-- <group ns="X1"> -->
   <node pkg="ground_finder" type="traversability_to_edt" name="traversability_to_edt" output="screen">
-  	<remap from="octomap" to="merged_map_full"/>
+  	<remap from="octomap" to="octomap_full"/>
+    <remap from="rough_cloud" to="octomap_point_cloud_centers"/>
     <remap from="edt" to="edt"/>
 
     <!-- Params -->
-    <param name="update_rate" value="5.0"/>
+    <param name="update_rate" value="0.5"/>
     <param name="min_cluster_size" value="50"/>
     <param name="normal_z_threshold" value="0.92"/>
     <param name="normal_curvature_threshold" value="0.1"/>
@@ -22,5 +23,5 @@
     <!-- <param name="bbx_xy" value="8.0"/> -->
     <!-- <param name="bbx_z" value ="3.0"/> -->
   </node>
-	</group>
+  <!-- </group> -->
 </launch>

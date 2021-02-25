@@ -3,7 +3,7 @@
 // Octomap libaries
 #include <octomap/octomap.h>
 #include <octomap/ColorOcTree.h>
-#include <octomap/RoughOcTree.h>
+#include <rough_octomap/RoughOcTree.h>
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
 // ROS Libraries
@@ -17,12 +17,15 @@
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/filters/crop_box.h>
+#include <pcl/filters/voxel_grid.h>
 // Eigen
 #include <Eigen/Core>
 
 // octomap::OcTree* map_octree;
 octomap::RoughOcTree* map_octree;
 bool map_updated = false;
+pcl::PointCloud<pcl::PointXYZI>::Ptr rough_cloud (new pcl::PointCloud<pcl::PointXYZI>);
+bool rough_updated = false;
 
 void index3_xyz(const int index, double point[3], double min[3], int size[3], double voxel_size)
 {
@@ -123,7 +126,7 @@ void CalculatePointCloudEDT(bool *occupied_mat, pcl::PointCloud<pcl::PointXYZI>:
 {
   // Call EDT function
   float* dt = edt::edt<bool>(occupied_mat, /*sx=*/size[0], /*sy=*/size[1], /*sz=*/size[2],
-  /*wx=*/1.0, /*wy=*/1.0, /*wz=*/100.0, /*black_border=*/false);
+  /*wx=*/1.0, /*wy=*/1.0, /*wz=*/1.0, /*black_border=*/false);
 
   // Parse EDT result into output PointCloud
   double max[3];
@@ -156,9 +159,16 @@ void CallbackOctomap(const octomap_msgs::Octomap::ConstPtr msg)
   if (msg->data.size() == 0) return;
   delete map_octree;
   map_octree = (octomap::RoughOcTree*)octomap_msgs::fullMsgToMap(*msg);
-  ROS_INFO("OcTree received of type:");
-  std::cout << map_octree->getTreeType() << std::endl;
+  // map_octree = (octomap::OcTree*)octomap_msgs::fullMsgToMap(*msg);
   map_updated = true;
+}
+
+void CallbackRoughCloud(const sensor_msgs::PointCloud2::ConstPtr msg)
+{
+  ROS_INFO("Subscribing to surface roughness cloud...");
+  if (msg->data.size() == 0) return;
+  pcl::fromROSMsg(*msg, *rough_cloud);
+  rough_updated = true;
 }
 
 void NodeManager::CallbackOdometry(nav_msgs::Odometry msg)
@@ -217,6 +227,12 @@ void NodeManager::FindGroundVoxels(std::string map_size)
 {
   if (map_updated) {
     map_updated = false;
+  } else {
+    return;
+  }
+
+  if (rough_updated) {
+    rough_updated = false;
   } else {
     return;
   }
@@ -298,26 +314,7 @@ void NodeManager::FindGroundVoxels(std::string map_size)
   {
     double query[3];
     query[0] = it.getX(); query[1] = it.getY(); query[2] = it.getZ();
-    if (it->getOccupancy() >= 0.6) { // occupied
-      // Check if it's already been labeled traversable
-      if (it->getRough() <= 0.8) {
-        // Point is traversable, make sure it gets an edt value
-        pcl::PointXYZI query_point;
-        query_point.x = query[0]; query_point.y = query[1]; query_point.z = query[2];
-        query_point.intensity = it->getRough();
-        ROS_INFO_THROTTLE(0.5, "Current roughness = %0.1f", query_point.intensity);
-        ground_cloud_traversable->points.push_back(query_point);
-        ground_cloud_prefilter->points.push_back(query_point);
-      } else {
-        // not traversable, add to occupied_mat
-        int id = xyz_index3(query, bbx_min_array, bbx_size, voxel_size);
-        occupied_mat[id] = false;
-        pcl::PointXYZ query_point;
-        query_point.x = query[0]; query_point.y = query[1]; query_point.z = query[2];
-        obstacle_cloud->points.push_back(query_point);
-      }
-      // TO-DO Add in a case for when isNan(it->getRough()) because that voxel has no label
-    } else if (it->getOccupancy() <= 0.4) { // free
+    if (it->getOccupancy() <= 0.4) { // free
       // Check if the cell below it is unseen
      octomap::OcTreeNode* node = map_octree->search(query[0], query[1], query[2] - voxel_size);
       if (node) {
@@ -338,6 +335,30 @@ void NodeManager::FindGroundVoxels(std::string map_size)
     }
   }
   // ***** //
+
+  // Iterate through roughness pointcloud and add all points below max_roughness to the initial ground_cloud and all others to the occupied_mat
+  pcl::PointCloud<pcl::PointXYZI>::Ptr rough_cloud_bbx (new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::CropBox<pcl::PointXYZI> box_filter_rough;
+  box_filter_rough.setMin(bbx_min);
+  box_filter_rough.setMax(bbx_max);
+  box_filter_rough.setNegative(false);
+  box_filter_rough.setInputCloud(rough_cloud);
+  box_filter_rough.filter(*rough_cloud_bbx);
+  for (int i=0; i<rough_cloud_bbx->points.size(); i++) {
+    pcl::PointXYZI rough_voxel = rough_cloud_bbx->points[i];
+    if (rough_voxel.intensity <= max_roughness)
+    {
+      ground_cloud_traversable->points.push_back(rough_voxel);
+      ground_cloud_prefilter->points.push_back(rough_voxel);
+    } else {
+      double query[3] = {rough_voxel.x, rough_voxel.y, rough_voxel.z};
+      int id = xyz_index3(query, bbx_min_array, bbx_size, voxel_size);
+      occupied_mat[id] = false;
+      pcl::PointXYZ query_point;
+      query_point.x = query[0]; query_point.y = query[1]; query_point.z = query[2];
+      obstacle_cloud->points.push_back(query_point);
+    }
+  }
 
   // Publish the initial ground cloud and the negative ground only cloud
   debug_publishers[0].publish(ConvertCloudToMsg(ground_cloud_free, fixed_frame_id));
@@ -407,7 +428,7 @@ void NodeManager::FindGroundVoxels(std::string map_size)
   pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud_bbx (new pcl::PointCloud<pcl::PointXYZI>);
   pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud_bbx_smaller (new pcl::PointCloud<pcl::PointXYZI>);
 
-  ROS_INFO("Copying biggest cluster...");
+  ROS_INFO("Copying clusters above minimum cluster size...");
   // Add the biggest (or the one with the robot in it) to the ground_cloud.
   if (cluster_indices.size() > 0) {
     for (int j=0; j< cluster_indices.size(); j++){
@@ -442,14 +463,26 @@ void NodeManager::FindGroundVoxels(std::string map_size)
     edt_cloud_bbx->points.push_back(edt_point); // Padding
   }
 
+  // Use a voxel_grid filter to remove duplicate voxel entries.
+  pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud_bbx_filtered (new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::VoxelGrid<pcl::PointXYZI> sor;
+  sor.setInputCloud (edt_cloud_bbx);
+  sor.setLeafSize (0.1*voxel_size, 0.1*voxel_size, 0.1*voxel_size);
+  sor.filter (*edt_cloud_bbx_filtered);
+  edt_cloud_bbx->points.clear();
+  pcl::PointCloud<pcl::PointXYZI>::Ptr ground_cloud_local_filtered (new pcl::PointCloud<pcl::PointXYZI>);
+  sor.setInputCloud (ground_cloud_local);
+  sor.setLeafSize (0.1*voxel_size, 0.1*voxel_size, 0.1*voxel_size);
+  sor.filter (*ground_cloud_local_filtered);
+
+
   // Clear ground_cloud and deep copy it from ground_cloud_local
   ground_cloud->points.clear();
-  for (int i=0; i<ground_cloud_local->points.size(); i++) {
-    ground_cloud->points.push_back(ground_cloud_local->points[i]);
+  for (int i=0; i<ground_cloud_local_filtered->points.size(); i++) {
+    ground_cloud->points.push_back(ground_cloud_local_filtered->points[i]);
   }
 
   // Calculate EDT bbx
-  
   double bbx_min_array_edt[3];
   double bbx_max_array_edt[3];
   if (map_size == "bbx") {
@@ -472,7 +505,7 @@ void NodeManager::FindGroundVoxels(std::string map_size)
   box_filter2.setMin(bbx_min_edt);
   box_filter2.setMax(bbx_max_edt);
   box_filter2.setNegative(false);
-  box_filter2.setInputCloud(edt_cloud_bbx);
+  box_filter2.setInputCloud(edt_cloud_bbx_filtered);
   box_filter2.filter(*edt_cloud_bbx_smaller);
 
   // EDT Calculation
@@ -525,7 +558,8 @@ int main(int argc, char **argv)
 
   // Subscribers and Publishers
   ros::Subscriber sub = n.subscribe("octomap", 1, CallbackOctomap);
-  ros::Subscriber sub1 = n.subscribe("odometry", 1, &NodeManager::CallbackOdometry, &node_manager);
+  ros::Subscriber sub_octomap = n.subscribe("odometry", 1, &NodeManager::CallbackOdometry, &node_manager);
+  ros::Subscriber sub_rough = n.subscribe("rough_cloud", 1, CallbackRoughCloud);
   ros::Publisher pub1 = n.advertise<sensor_msgs::PointCloud2>("ground", 5);
   ros::Publisher pub2 = n.advertise<sensor_msgs::PointCloud2>("edt", 5);
   ros::Publisher pub_prefilter_negative_ground = n.advertise<sensor_msgs::PointCloud2>("debug/ground_prefilter_negative", 5);
@@ -580,7 +614,7 @@ int main(int argc, char **argv)
     else {
       node_manager.FindGroundVoxels("bbx");
     }
-    ROS_INFO("ground cloud currently has %d points", (int)node_manager.ground_cloud->points.size());
+    // ROS_INFO("ground cloud currently has %d points", (int)node_manager.ground_cloud->points.size());
     if (node_manager.ground_cloud->points.size() > 0) pub1.publish(node_manager.ground_msg);
     if (node_manager.edt_cloud->points.size() > 0) pub2.publish(node_manager.edt_msg);
   }
