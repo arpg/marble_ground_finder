@@ -16,6 +16,7 @@ find_package(catkin REQUIRED
     octomap_ros
     octomap_msgs
     cmake_modules
+    rough_octomap
 )
 
 add_definitions(${EIGEN_DEFINITIONS})
@@ -48,7 +49,7 @@ target_link_libraries(octomap_to_edt
   ${catkin_LIBRARIES}
 )
 
-# add_executable(traversability_to_edt src/traversability_map_to_edt_node.cpp)
-# target_link_libraries(traversability_to_edt
-#   ${catkin_LIBRARIES}
-# )
+add_executable(traversability_to_edt src/traversability_map_to_edt_node.cpp)
+target_link_libraries(traversability_to_edt
+  ${catkin_LIBRARIES}
+)

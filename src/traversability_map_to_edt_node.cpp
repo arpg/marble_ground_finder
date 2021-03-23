@@ -21,9 +21,9 @@
 // Eigen
 #include <Eigen/Core>
 
-// octomap::OcTree* map_octree;
-octomap::RoughOcTree* map_octree;
+octomap::OcTree* map_octree;
 bool map_updated = false;
+octomap::RoughOcTree* rough_octree;
 pcl::PointCloud<pcl::PointXYZI>::Ptr rough_cloud (new pcl::PointCloud<pcl::PointXYZI>);
 bool rough_updated = false;
 
@@ -86,6 +86,7 @@ class NodeManager
     // void CallbackOctomap(const octomap_msgs::Octomap::ConstPtr msg);
     void CallbackOdometry(const nav_msgs::Odometry msg);
     void FindGroundVoxels(std::string map_size);
+    void FindGroundVoxels_RoughOctomap(std::string map_size);
     void UpdateRobotState();
     void GetGroundMsg();
     void GetEdtMsg();
@@ -93,16 +94,6 @@ class NodeManager
     // void FilterContiguous();
 };
 
-// template <class T>
-// sensor_msgs::PointCloud2 ConvertCloudToMsg(pcl::PointCloud<T>::Ptr cloud, std::string frame_id)
-// {
-//   sensor_msgs::PointCloud2 msg;
-//   pcl::toROSMsg(*cloud, msg);
-//   msg.header.seq = 1;
-//   msg.header.stamp = ros::Time();
-//   msg.header.frame_id = frame_id;
-//   return msg;
-// }
 sensor_msgs::PointCloud2 ConvertCloudToMsg(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, std::string frame_id)
 {
   sensor_msgs::PointCloud2 msg;
@@ -158,8 +149,16 @@ void CallbackOctomap(const octomap_msgs::Octomap::ConstPtr msg)
   ROS_INFO("Subscribing to Octomap...");
   if (msg->data.size() == 0) return;
   delete map_octree;
-  map_octree = (octomap::RoughOcTree*)octomap_msgs::fullMsgToMap(*msg);
-  // map_octree = (octomap::OcTree*)octomap_msgs::fullMsgToMap(*msg);
+  map_octree = (octomap::OcTree*)octomap_msgs::fullMsgToMap(*msg);
+  map_updated = true;
+}
+
+void CallbackRoughOctomap(const octomap_msgs::Octomap::ConstPtr msg)
+{
+  ROS_INFO("Subscribing to Rough Octomap...");
+  if (msg->data.size() == 0) return;
+  delete rough_octree;
+  rough_octree = (octomap::RoughOcTree*)octomap_msgs::fullMsgToMap(*msg);
   map_updated = true;
 }
 
@@ -308,7 +307,7 @@ void NodeManager::FindGroundVoxels(std::string map_size)
   // Expand octomap 
   map_octree->expand();
 
-  for(octomap::RoughOcTree::leaf_bbx_iterator
+  for(octomap::OcTree::leaf_bbx_iterator
   it = map_octree->begin_leafs_bbx(bbx_min_octomap, bbx_max_octomap);
   it != map_octree->end_leafs_bbx(); ++it)
   {
@@ -346,11 +345,11 @@ void NodeManager::FindGroundVoxels(std::string map_size)
   box_filter_rough.filter(*rough_cloud_bbx);
   for (int i=0; i<rough_cloud_bbx->points.size(); i++) {
     pcl::PointXYZI rough_voxel = rough_cloud_bbx->points[i];
-    if (rough_voxel.intensity <= max_roughness)
+    if ((rough_voxel.intensity <= max_roughness) || (std::isnan(rough_voxel.intensity)))
     {
       ground_cloud_traversable->points.push_back(rough_voxel);
       ground_cloud_prefilter->points.push_back(rough_voxel);
-    } else {
+    } else if ((rough_voxel.intensity >= max_roughness) && (rough_voxel.intensity <= 1.1)) {
       double query[3] = {rough_voxel.x, rough_voxel.y, rough_voxel.z};
       int id = xyz_index3(query, bbx_min_array, bbx_size, voxel_size);
       occupied_mat[id] = false;
@@ -399,10 +398,12 @@ void NodeManager::FindGroundVoxels(std::string map_size)
   // ***** //
 
   ROS_INFO("Contiguity filtering normal filtered cloud of length %d...", (int)ground_cloud_normal_filtered->points.size());
+  // ROS_INFO("Contiguity filtering normal filtered cloud of length %d...", (int)ground_cloud_prefilter->points.size());
   // ***** //
   // Filter ground by contiguity (is this necessary?)
   pcl::search::KdTree<pcl::PointXYZI>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZI>);
   kdtree->setInputCloud(ground_cloud_normal_filtered);
+  // kdtree->setInputCloud(ground_cloud_prefilter);
 
   // Initialize euclidean cluster extraction object
   std::vector<pcl::PointIndices> cluster_indices;
@@ -411,6 +412,7 @@ void NodeManager::FindGroundVoxels(std::string map_size)
   euclidean_cluster_extractor.setMinClusterSize(min_cluster_size); // Cluster must be at least 15 voxels in size
   euclidean_cluster_extractor.setSearchMethod(kdtree);
   euclidean_cluster_extractor.setInputCloud(ground_cloud_normal_filtered);
+  // euclidean_cluster_extractor.setInputCloud(ground_cloud_prefilter); // try w/o normal filtering
   euclidean_cluster_extractor.extract(cluster_indices);
   ROS_INFO("Clusters extracted.");
 
@@ -434,8 +436,8 @@ void NodeManager::FindGroundVoxels(std::string map_size)
     for (int j=0; j< cluster_indices.size(); j++){
       if (cluster_indices[j].indices.size() >= min_cluster_size) {
         for (int i=0; i<cluster_indices[j].indices.size(); i++) {
-          // Only add in points that are negative space
           pcl::PointXYZI ground_point = ground_cloud_normal_filtered->points[cluster_indices[j].indices[i]];
+          // pcl::PointXYZI ground_point = ground_cloud_prefilter->points[cluster_indices[j].indices[i]];
           if (ground_point.intensity <= -0.5) {
             ground_cloud_local->points.push_back(ground_point);
             pcl::PointXYZI edt_point = ground_point;
@@ -548,6 +550,319 @@ void NodeManager::FindGroundVoxels(std::string map_size)
   return;
 }
 
+void NodeManager::FindGroundVoxels_RoughOctomap(std::string map_size)
+{
+  if (map_updated) {
+    map_updated = false;
+  } else {
+    return;
+  }
+
+  UpdateRobotState();
+  if (!(position_updated)) return;
+
+  // Store voxel_size, this shouldn't change throughout the node running,
+  // but something weird will happen if it does.
+  double voxel_size = rough_octree->getResolution();
+
+  // Get map minimum and maximum dimensions
+  double x_min_tree, y_min_tree, z_min_tree;
+  rough_octree->getMetricMin(x_min_tree, y_min_tree, z_min_tree);
+  double min_tree[3] = {x_min_tree, y_min_tree, z_min_tree};
+  double x_max_tree, y_max_tree, z_max_tree;
+  rough_octree->getMetricMax(x_max_tree, y_max_tree, z_max_tree);
+  double max_tree[3] = {x_max_tree, y_max_tree, z_max_tree};
+
+  ROS_INFO("Calculating bounding box. Map size =");
+  std::cout << map_size << std::endl;
+  // ***** //
+  // Find a bounding box around the robot's current position to limit the map queries and cap compute/memory
+  double bbx_min_array[3];
+  double bbx_max_array[3];
+
+  // Check if this iteration requires the full map.
+  if (map_size == "bbx") {
+    for (int i=0; i<3; i++) {
+      bbx_min_array[i] = min_tree[i] + std::round((robot.position[i] - 2.0*robot.sensor_range - min_tree[i])/voxel_size)*voxel_size - 2.95*voxel_size;
+      // bbx_min_array[i] = std::max(bbx_min_array[i], min_tree[i] - 1.5*voxel_size);
+      bbx_max_array[i] = min_tree[i] + std::round((robot.position[i] + 2.0*robot.sensor_range - min_tree[i])/voxel_size)*voxel_size + 2.95*voxel_size;
+      // bbx_max_array[i] = std::min(bbx_max_array[i], max_tree[i] + 1.5*voxel_size);
+    }
+  }
+  else {
+    for (int i=0; i<3; i++) {
+      bbx_min_array[i] = min_tree[i] - 1.5*voxel_size;
+      bbx_max_array[i] = max_tree[i] + 1.5*voxel_size;
+    }
+  }
+
+  Eigen::Vector4f bbx_min(bbx_min_array[0], bbx_min_array[1], bbx_min_array[2], 1.0);
+  Eigen::Vector4f bbx_max(bbx_max_array[0], bbx_max_array[1], bbx_max_array[2], 1.0);
+  octomap::point3d bbx_min_octomap(bbx_min_array[0], bbx_min_array[1], bbx_min_array[2]);
+  octomap::point3d bbx_max_octomap(bbx_max_array[0], bbx_max_array[1], bbx_max_array[2]);
+  // ***** //
+  ROS_INFO("Box has x,y,z limits of [%0.1f to %0.1f, %0.1f to %0.1f, and %0.1f to %0.1f] meters.",
+  bbx_min_array[0], bbx_max_array[0], bbx_min_array[1], bbx_max_array[1], bbx_min_array[2], bbx_max_array[2]);
+
+  ROS_INFO("Allocating occupied bool flat matrix memory.");
+  // Allocate memory for the occupied cells within the bounding box in a flat 3D boolean array
+  int bbx_size[3];
+  for (int i=0; i<3; i++) {
+    bbx_size[i] = (int)std::round((bbx_max[i] - bbx_min[i])/voxel_size) + 1;
+  }
+  int bbx_mat_length = bbx_size[0]*bbx_size[1]*bbx_size[2];
+  // bool occupied_mat[bbx_mat_length];
+  bool* occupied_mat = new bool[bbx_mat_length]; // Allows for more memory allocation
+  for (int i=0; i<bbx_mat_length; i++) occupied_mat[i] = true;
+
+  ROS_INFO("Removing the voxels within the bounding box from the ground_cloud of length %d", (int)ground_cloud->points.size());
+
+  // ***** //
+  // Iterate through that box
+  ROS_INFO("Beginning tree iteration through map of size %d", (int)rough_octree->size());
+  // Initialize a PCL object to hold preliminary ground voxels
+  pcl::PointCloud<pcl::PointXYZI>::Ptr ground_cloud_prefilter(new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr ground_cloud_traversable(new pcl::PointCloud<pcl::PointXYZI>); // input points that have already been labeled untraversable
+  pcl::PointCloud<pcl::PointXYZI>::Ptr ground_cloud_free(new pcl::PointCloud<pcl::PointXYZI>); // free voxels with unseen below.
+  pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+
+  // Expand octomap 
+  rough_octree->expand();
+
+  for(octomap::RoughOcTree::leaf_bbx_iterator
+  it = rough_octree->begin_leafs_bbx(bbx_min_octomap, bbx_max_octomap);
+  it != rough_octree->end_leafs_bbx(); ++it)
+  {
+    double query[3];
+    query[0] = it.getX(); query[1] = it.getY(); query[2] = it.getZ();
+    if (it->getOccupancy() <= 0.4) { // free
+      // Check if the cell below it is unseen
+     octomap::OcTreeNode* node = rough_octree->search(query[0], query[1], query[2] - voxel_size);
+      if (node) {
+        if ((node->getOccupancy() <= 0.55) && (node->getOccupancy() >= 0.45)) {
+          pcl::PointXYZI query_point;
+          query_point.x = query[0]; query_point.y = query[1]; query_point.z = query[2];
+          query_point.intensity = (float)-1.0; // (.intensity == -1.0) --> free voxel
+          ground_cloud_prefilter->points.push_back(query_point);
+          ground_cloud_free->points.push_back(query_point);
+        }
+      } else {
+        pcl::PointXYZI query_point;
+        query_point.x = query[0]; query_point.y = query[1]; query_point.z = query[2];
+        query_point.intensity = (float)-1.0; // (.intensity == -1.0) --> free voxel
+        ground_cloud_prefilter->points.push_back(query_point);
+        ground_cloud_free->points.push_back(query_point);
+      }
+    }
+    else if (it->getOccupancy() >= 0.6) { // occupied
+      if ((it->getRough() <= max_roughness) || (std::isnan(it->getRough()))) {
+        pcl::PointXYZI rough_voxel;
+        rough_voxel.x = query[0]; rough_voxel.y = query[1]; rough_voxel.z = query[2];
+        rough_voxel.intensity = it->getRough();
+        ground_cloud_traversable->points.push_back(rough_voxel);
+        ground_cloud_prefilter->points.push_back(rough_voxel);
+      } else {
+        int id = xyz_index3(query, bbx_min_array, bbx_size, voxel_size);
+        occupied_mat[id] = false;
+        pcl::PointXYZ rough_voxel;
+        rough_voxel.x = query[0]; rough_voxel.y = query[1]; rough_voxel.z = query[2];
+        obstacle_cloud->points.push_back(rough_voxel);
+      }
+    }
+  }
+
+  // Publish the initial ground cloud and the negative ground only cloud
+  debug_publishers[0].publish(ConvertCloudToMsg(ground_cloud_free, fixed_frame_id));
+  debug_publishers[1].publish(ConvertCloudToMsg(ground_cloud_prefilter, fixed_frame_id));
+  debug_publishers[2].publish(ConvertCloudToMsg(ground_cloud_traversable, fixed_frame_id));
+  ROS_INFO("Published points initially labeled ground before filtering.");
+  // sleep(5.0);
+
+  ROS_INFO("Normal vector filtering initial ground PointCloud of length %d", (int)ground_cloud_prefilter->points.size());
+
+  // Filter ground by local normal vector
+  pcl::PointCloud<pcl::PointXYZI>::Ptr ground_cloud_normal_filtered (new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr negative_obstacle_cloud (new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::NormalEstimation<pcl::PointXYZI, pcl::Normal> normal_filter;
+  normal_filter.setInputCloud(ground_cloud_prefilter);
+  pcl::search::KdTree<pcl::PointXYZI>::Ptr kdtree_normal (new pcl::search::KdTree<pcl::PointXYZI>());
+  kdtree_normal->setInputCloud(ground_cloud_prefilter);
+  normal_filter.setSearchMethod(kdtree_normal);
+  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
+  normal_filter.setRadiusSearch(5.0*rough_octree->getResolution());
+  normal_filter.setViewPoint(0.0, 0.0, 2.0);
+  normal_filter.compute(*cloud_normals);
+
+  for (int i=0; i<cloud_normals->points.size(); i++) {
+    pcl::PointXYZI query = ground_cloud_prefilter->points[i];
+    pcl::Normal query_normal = cloud_normals->points[i];
+    if ((std::abs(query_normal.normal_z) >= normal_z_threshold) && (std::abs(query_normal.curvature) <= normal_curvature_threshold)) {
+        ground_cloud_normal_filtered->points.push_back(query);
+    } else {
+      if (query.intensity <= -0.5) {
+        negative_obstacle_cloud->points.push_back(query);
+      }
+    }
+  }
+  debug_publishers[3].publish(ConvertCloudToMsg(ground_cloud_normal_filtered, fixed_frame_id));
+  debug_publishers[5].publish(ConvertCloudToMsg(negative_obstacle_cloud, fixed_frame_id));
+  debug_publishers[6].publish(ConvertCloudToMsg(obstacle_cloud, fixed_frame_id));
+  // ***** //
+
+  ROS_INFO("Contiguity filtering normal filtered cloud of length %d...", (int)ground_cloud_normal_filtered->points.size());
+  // ROS_INFO("Contiguity filtering normal filtered cloud of length %d...", (int)ground_cloud_prefilter->points.size());
+  // ***** //
+  // Filter ground by contiguity (is this necessary?)
+  pcl::search::KdTree<pcl::PointXYZI>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZI>);
+  kdtree->setInputCloud(ground_cloud_normal_filtered);
+  // kdtree->setInputCloud(ground_cloud_prefilter);
+
+  // Initialize euclidean cluster extraction object
+  std::vector<pcl::PointIndices> cluster_indices;
+  pcl::EuclideanClusterExtraction<pcl::PointXYZI> euclidean_cluster_extractor;
+  euclidean_cluster_extractor.setClusterTolerance(1.8*voxel_size); // Clusters must be made of contiguous sections of ground (within sqrt(2)*voxel_size of each other)
+  euclidean_cluster_extractor.setMinClusterSize(min_cluster_size); // Cluster must be at least 15 voxels in size
+  euclidean_cluster_extractor.setSearchMethod(kdtree);
+  euclidean_cluster_extractor.setInputCloud(ground_cloud_normal_filtered);
+  // euclidean_cluster_extractor.setInputCloud(ground_cloud_prefilter); // try w/o normal filtering
+  euclidean_cluster_extractor.extract(cluster_indices);
+  ROS_INFO("Clusters extracted.");
+
+  // Extract a local bounding box from the ground_cloud
+  pcl::PointCloud<pcl::PointXYZI>::Ptr ground_cloud_local (new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::CropBox<pcl::PointXYZI> box_filter;
+  box_filter.setMin(bbx_min);
+  box_filter.setMax(bbx_max);
+  box_filter.setNegative(true);
+  box_filter.setInputCloud(ground_cloud);
+  box_filter.filter(*ground_cloud_local);
+
+  // Extract local bounding box from the edt_cloud
+  pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud_local (new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud_bbx (new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud_bbx_smaller (new pcl::PointCloud<pcl::PointXYZI>);
+
+  ROS_INFO("Copying clusters above minimum cluster size...");
+  // Add the biggest (or the one with the robot in it) to the ground_cloud.
+  if (cluster_indices.size() > 0) {
+    for (int j=0; j< cluster_indices.size(); j++){
+      if (cluster_indices[j].indices.size() >= min_cluster_size) {
+        for (int i=0; i<cluster_indices[j].indices.size(); i++) {
+          pcl::PointXYZI ground_point = ground_cloud_normal_filtered->points[cluster_indices[j].indices[i]];
+          // pcl::PointXYZI ground_point = ground_cloud_prefilter->points[cluster_indices[j].indices[i]];
+          if (ground_point.intensity <= -0.5) {
+            ground_cloud_local->points.push_back(ground_point);
+            pcl::PointXYZI edt_point = ground_point;
+            edt_point.intensity = 0.0;
+            edt_cloud_bbx->points.push_back(edt_point);
+            edt_point.z = edt_point.z + voxel_size; // Padding
+            edt_cloud_bbx->points.push_back(edt_point); // Padding
+          }
+        }
+      }
+    }
+  } else {
+    ROS_INFO("No new cloud entries, publishing previous cloud msg");
+    return;
+  }
+
+  // Add in all the "traversable" voxels from the RoughOcTree
+  for (int i=0; i<ground_cloud_traversable->points.size(); i++) {
+    pcl::PointXYZI ground_point = ground_cloud_traversable->points[i];
+    ground_cloud_local->points.push_back(ground_point);
+    pcl::PointXYZI edt_point = ground_point;
+    edt_point.intensity = 0.0; // Consider passing traversability in to penalize rougher points.
+    edt_cloud_bbx->points.push_back(edt_point);
+    edt_point.z = edt_point.z + voxel_size; // Padding
+    edt_cloud_bbx->points.push_back(edt_point); // Padding
+  }
+
+  // Use a voxel_grid filter to remove duplicate voxel entries.
+  pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud_bbx_filtered (new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::VoxelGrid<pcl::PointXYZI> sor;
+  sor.setInputCloud (edt_cloud_bbx);
+  sor.setLeafSize (0.1*voxel_size, 0.1*voxel_size, 0.1*voxel_size);
+  sor.filter (*edt_cloud_bbx_filtered);
+  edt_cloud_bbx->points.clear();
+  pcl::PointCloud<pcl::PointXYZI>::Ptr ground_cloud_local_filtered (new pcl::PointCloud<pcl::PointXYZI>);
+  sor.setInputCloud (ground_cloud_local);
+  sor.setLeafSize (0.1*voxel_size, 0.1*voxel_size, 0.1*voxel_size);
+  sor.filter (*ground_cloud_local_filtered);
+
+
+  // Clear ground_cloud and deep copy it from ground_cloud_local
+  ground_cloud->points.clear();
+  for (int i=0; i<ground_cloud_local_filtered->points.size(); i++) {
+    ground_cloud->points.push_back(ground_cloud_local_filtered->points[i]);
+  }
+
+  // Calculate EDT bbx
+  double bbx_min_array_edt[3];
+  double bbx_max_array_edt[3];
+  if (map_size == "bbx") {
+    for (int i=0; i<3; i++) {
+      double bbx_center = (bbx_min_array[i] + bbx_max_array[i])/2.0;
+      bbx_min_array_edt[i] = bbx_center - (bbx_size[i]/4.0)*voxel_size;
+      bbx_max_array_edt[i] = bbx_center + (bbx_size[i]/4.0)*voxel_size;
+    }
+  }
+  else {
+    for (int i=0; i<3; i++) {
+      bbx_min_array_edt[i] = bbx_min_array[i];
+      bbx_max_array_edt[i] = bbx_max_array[i];
+    }
+  }
+  Eigen::Vector4f bbx_min_edt(bbx_min_array_edt[0], bbx_min_array_edt[1], bbx_min_array_edt[2], 0.0);
+  Eigen::Vector4f bbx_max_edt(bbx_max_array_edt[0], bbx_max_array_edt[1], bbx_max_array_edt[2], 0.0);
+
+  pcl::CropBox<pcl::PointXYZI> box_filter2;
+  box_filter2.setMin(bbx_min_edt);
+  box_filter2.setMax(bbx_max_edt);
+  box_filter2.setNegative(false);
+  box_filter2.setInputCloud(edt_cloud_bbx_filtered);
+  box_filter2.filter(*edt_cloud_bbx_smaller);
+
+  // EDT Calculation
+  ROS_INFO("Calculating EDT.");
+  CalculatePointCloudEDT(occupied_mat, edt_cloud_bbx_smaller, bbx_min_array, bbx_size, voxel_size, truncation_distance);
+  InflateObstacles(edt_cloud_bbx_smaller, inflate_distance);
+  ROS_INFO("EDT calculated.");
+
+  // Copy to edt_cloud
+
+  if (map_size == "bbx") {
+    pcl::CropBox<pcl::PointXYZI> box_filter3;
+    box_filter3.setMin(bbx_min_edt);
+    box_filter3.setMax(bbx_max_edt);
+    box_filter3.setNegative(true);
+    box_filter3.setInputCloud(edt_cloud);
+    box_filter3.filter(*edt_cloud_local);
+
+    for (int i=0; i<edt_cloud_bbx_smaller->points.size(); i++) {
+      edt_cloud_local->points.push_back(edt_cloud_bbx_smaller->points[i]);
+    }
+
+    edt_cloud->points.clear();
+    for (int i=0; i<edt_cloud_local->points.size(); i++) {
+      edt_cloud->points.push_back(edt_cloud_local->points[i]);
+    }
+  }
+  else {
+    edt_cloud->points.clear();
+    for (int i=0; i<edt_cloud_bbx_smaller->points.size(); i++) {
+      edt_cloud->points.push_back(edt_cloud_bbx_smaller->points[i]);
+    }
+  }
+  
+
+  GetGroundMsg();
+  GetEdtMsg();
+  delete[] occupied_mat;
+  ROS_INFO("Publishing edt");
+  return;
+}
+
+
 int main(int argc, char **argv)
 {
   // Node declaration
@@ -557,9 +872,10 @@ int main(int argc, char **argv)
   NodeManager node_manager;
 
   // Subscribers and Publishers
-  ros::Subscriber sub = n.subscribe("octomap", 1, CallbackOctomap);
-  ros::Subscriber sub_octomap = n.subscribe("odometry", 1, &NodeManager::CallbackOdometry, &node_manager);
+  ros::Subscriber sub_octomap = n.subscribe("octomap", 1, CallbackOctomap);
+  ros::Subscriber sub_odometry = n.subscribe("odometry", 1, &NodeManager::CallbackOdometry, &node_manager);
   ros::Subscriber sub_rough = n.subscribe("rough_cloud", 1, CallbackRoughCloud);
+  ros::Subscriber sub_rough_octomap = n.subscribe("rough_octomap", 1, CallbackRoughOctomap);
   ros::Publisher pub1 = n.advertise<sensor_msgs::PointCloud2>("ground", 5);
   ros::Publisher pub2 = n.advertise<sensor_msgs::PointCloud2>("edt", 5);
   ros::Publisher pub_prefilter_negative_ground = n.advertise<sensor_msgs::PointCloud2>("debug/ground_prefilter_negative", 5);
@@ -609,10 +925,12 @@ int main(int argc, char **argv)
     ros::spinOnce();
     if (map_updated) ticks++;
     if ((ticks % full_map_ticks) == 0) {
-      node_manager.FindGroundVoxels("full");
+      // node_manager.FindGroundVoxels("full");
+      node_manager.FindGroundVoxels_RoughOctomap("full");
     }
     else {
-      node_manager.FindGroundVoxels("bbx");
+      // node_manager.FindGroundVoxels("bbx");
+      node_manager.FindGroundVoxels_RoughOctomap("bbx");
     }
     // ROS_INFO("ground cloud currently has %d points", (int)node_manager.ground_cloud->points.size());
     if (node_manager.ground_cloud->points.size() > 0) pub1.publish(node_manager.ground_msg);
