@@ -3,8 +3,6 @@
   <arg name="robot_frame" default="base_link"/>
 
   <node pkg="ground_finder" type="traversability_to_edt" name="traversability_to_edt" output="screen">
-  	<!-- <remap from="octomap" to="octomap_full"/> -->
-    <!-- <remap from="rough_cloud" to="rough_octomap_point_cloud_centers"/> -->
     <remap from="rough_octomap" to="rough_octomap_full"/>
     <remap from="edt" to="edt"/>
 
@@ -21,8 +19,9 @@
     <param name="use_tf" value="true"/>
     <param name="robot_frame_id" value="$(arg robot_frame)"/>
     <param name="fixed_frame_id" value="world"/>
-    <param name="max_roughness" value="0.8"/>
+    <param name="max_roughness" value="0.5"/>
     <!-- <param name="bbx_xy" value="8.0"/> -->
     <!-- <param name="bbx_z" value ="3.0"/> -->
+    <param name="edt_padding" value="3"/>
   </node>
 </launch>

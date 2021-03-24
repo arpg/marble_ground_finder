@@ -81,6 +81,7 @@ class NodeManager
     float inflate_distance = 0.0; // meters
     float max_roughness = 0.5; // [0.0, 1.0]
     bool filter_holes = false;
+    int padding = 1;
     pcl::PointCloud<pcl::PointXYZI>::Ptr ground_cloud;
     pcl::PointCloud<pcl::PointXYZI>::Ptr edt_cloud;
     // void CallbackOctomap(const octomap_msgs::Octomap::ConstPtr msg);
@@ -443,8 +444,10 @@ void NodeManager::FindGroundVoxels(std::string map_size)
             pcl::PointXYZI edt_point = ground_point;
             edt_point.intensity = 0.0;
             edt_cloud_bbx->points.push_back(edt_point);
-            edt_point.z = edt_point.z + voxel_size; // Padding
-            edt_cloud_bbx->points.push_back(edt_point); // Padding
+            for (int i=0; i<padding; i++) {
+              edt_point.z = edt_point.z + voxel_size; // Padding
+              edt_cloud_bbx->points.push_back(edt_point); // Padding
+            }
           }
         }
       }
@@ -461,8 +464,10 @@ void NodeManager::FindGroundVoxels(std::string map_size)
     pcl::PointXYZI edt_point = ground_point;
     edt_point.intensity = 0.0; // Consider passing traversability in to penalize rougher points.
     edt_cloud_bbx->points.push_back(edt_point);
-    edt_point.z = edt_point.z + voxel_size; // Padding
-    edt_cloud_bbx->points.push_back(edt_point); // Padding
+    for (int i=0; i<padding; i++) {
+      edt_point.z = edt_point.z + voxel_size; // Padding
+      edt_cloud_bbx->points.push_back(edt_point); // Padding
+    }
   }
 
   // Use a voxel_grid filter to remove duplicate voxel entries.
@@ -755,8 +760,10 @@ void NodeManager::FindGroundVoxels_RoughOctomap(std::string map_size)
             pcl::PointXYZI edt_point = ground_point;
             edt_point.intensity = 0.0;
             edt_cloud_bbx->points.push_back(edt_point);
-            edt_point.z = edt_point.z + voxel_size; // Padding
-            edt_cloud_bbx->points.push_back(edt_point); // Padding
+            for (int i=0; i<padding; i++) {
+              edt_point.z = edt_point.z + voxel_size; // Padding
+              edt_cloud_bbx->points.push_back(edt_point); // Padding
+            }
           }
         }
       }
@@ -773,8 +780,10 @@ void NodeManager::FindGroundVoxels_RoughOctomap(std::string map_size)
     pcl::PointXYZI edt_point = ground_point;
     edt_point.intensity = 0.0; // Consider passing traversability in to penalize rougher points.
     edt_cloud_bbx->points.push_back(edt_point);
-    edt_point.z = edt_point.z + voxel_size; // Padding
-    edt_cloud_bbx->points.push_back(edt_point); // Padding
+    for (int i=0; i<padding; i++) {
+      edt_point.z = edt_point.z + voxel_size; // Padding
+      edt_cloud_bbx->points.push_back(edt_point); // Padding
+    }
   }
 
   // Use a voxel_grid filter to remove duplicate voxel entries.
@@ -909,6 +918,7 @@ int main(int argc, char **argv)
   n.param("traversability_to_edt/inflate_distance", node_manager.inflate_distance, (float)0.0);
   n.param("traversability_to_edt/filter_holes", node_manager.filter_holes, false);
   n.param("traversability_to_edt/max_roughness", node_manager.max_roughness, (float)0.5);
+  n.param("traversability_to_edt/edt_padding", node_manager.padding, (int)1);
   int full_map_ticks = 200;
   n.param("traversability_to_edt/full_map_ticks", full_map_ticks, 200);
 
