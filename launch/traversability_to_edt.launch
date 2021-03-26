@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
   <arg name="robot_frame" default="base_link"/>
+  <arg name="octomap_topic" default="rough_octomap_full"/>
 
-  <node pkg="ground_finder" type="traversability_to_edt" name="traversability_to_edt" output="screen">
-    <remap from="rough_octomap" to="rough_octomap_full"/>
+  <node pkg="ground_finder" type="traversability_to_edt" name="traversability_to_edt" output="log">
+    <remap from="rough_octomap" to="$(arg octomap_topic)"/>
     <remap from="edt" to="edt"/>
 
     <!-- Params -->
