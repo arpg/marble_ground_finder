@@ -25,5 +25,5 @@
 	<depend>std_msgs</depend>
 	<depend>octomap_msgs</depend>
 	<depend>octomap</depend>
-  <!--	<depend>rough_octomap</depend> -->
+  <depend>rough_octomap</depend> 
 </package>
