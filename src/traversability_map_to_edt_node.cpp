@@ -929,6 +929,9 @@ int main(int argc, char **argv)
   ROS_INFO("Finished reading params.");
   // Main Loop
   int ticks = -1;
+
+  //Fake RoughOctree To Initialize node
+  octomap::RoughOcTree dummy_tree(0.1);
   while (ros::ok())
   {
     r.sleep();
