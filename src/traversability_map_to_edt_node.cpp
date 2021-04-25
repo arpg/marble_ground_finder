@@ -21,9 +21,9 @@
 // Eigen
 #include <Eigen/Core>
 
-octomap::OcTree* map_octree;
+octomap::OcTree* map_octree(new octomap::OcTree(0.1));
 bool map_updated = false;
-octomap::RoughOcTree* rough_octree;
+octomap::RoughOcTree* rough_octree(new octomap::RoughOcTree(0.1)); // must construct initial tree to register tree type with classIDMapping
 pcl::PointCloud<pcl::PointXYZI>::Ptr rough_cloud (new pcl::PointCloud<pcl::PointXYZI>);
 bool rough_updated = false;
 
@@ -129,7 +129,8 @@ void CalculatePointCloudEDT(bool *occupied_mat, pcl::PointCloud<pcl::PointXYZI>:
       int idx = xyz_index3(query, min, size, voxel_size);
       float distance = (float)dt[idx]*voxel_size;
       // if (distance < edt_cloud->points[i].intensity) edt_cloud->points[i].intensity = distance;
-      edt_cloud->points[i].intensity = std::min(distance, truncation_distance);
+      // edt_cloud->points[i].intensity = std::min(distance, truncation_distance)*(1-edt_cloud->points[i].intensity); // Scale edt value linearly wrt traversability (Intensity contains traversability info if avail, is 0 otherwise)
+      edt_cloud->points[i].intensity = std::min(distance, truncation_distance)*(1/exp(-10*(1-edt_cloud->points[i].intensity)+5)); // Scale with sigmoid
     }
   }
 
@@ -305,7 +306,7 @@ void NodeManager::FindGroundVoxels(std::string map_size)
   pcl::PointCloud<pcl::PointXYZI>::Ptr ground_cloud_free(new pcl::PointCloud<pcl::PointXYZI>); // free voxels with unseen below.
   pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
-  // Expand octomap 
+  // Expand octomap
   map_octree->expand();
 
   for(octomap::OcTree::leaf_bbx_iterator
@@ -546,7 +547,7 @@ void NodeManager::FindGroundVoxels(std::string map_size)
       edt_cloud->points.push_back(edt_cloud_bbx_smaller->points[i]);
     }
   }
-  
+
 
   GetGroundMsg();
   GetEdtMsg();
@@ -631,7 +632,7 @@ void NodeManager::FindGroundVoxels_RoughOctomap(std::string map_size)
   pcl::PointCloud<pcl::PointXYZI>::Ptr ground_cloud_free(new pcl::PointCloud<pcl::PointXYZI>); // free voxels with unseen below.
   pcl::PointCloud<pcl::PointXYZ>::Ptr obstacle_cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
-  // Expand octomap 
+  // Expand octomap
   rough_octree->expand();
 
   for(octomap::RoughOcTree::leaf_bbx_iterator
@@ -778,7 +779,7 @@ void NodeManager::FindGroundVoxels_RoughOctomap(std::string map_size)
     pcl::PointXYZI ground_point = ground_cloud_traversable->points[i];
     ground_cloud_local->points.push_back(ground_point);
     pcl::PointXYZI edt_point = ground_point;
-    edt_point.intensity = 0.0; // Consider passing traversability in to penalize rougher points.
+    // edt_point.intensity = 0.0; // Consider passing traversability in to penalize rougher points. // Traversability set to intensity above, combined with distance in CalculatePointCloudEDT
     edt_cloud_bbx->points.push_back(edt_point);
     for (int i=0; i<padding; i++) {
       edt_point.z = edt_point.z + voxel_size; // Padding
@@ -862,7 +863,7 @@ void NodeManager::FindGroundVoxels_RoughOctomap(std::string map_size)
       edt_cloud->points.push_back(edt_cloud_bbx_smaller->points[i]);
     }
   }
-  
+
 
   GetGroundMsg();
   GetEdtMsg();
@@ -924,14 +925,12 @@ int main(int argc, char **argv)
 
   float update_rate;
   n.param("traversability_to_edt/update_rate", update_rate, (float)5.0);
-  
+
   ros::Rate r(update_rate); // 5 Hz
   ROS_INFO("Finished reading params.");
   // Main Loop
   int ticks = -1;
 
-  //Fake RoughOctree To Initialize node
-  octomap::RoughOcTree dummy_tree(0.1);
   while (ros::ok())
   {
     r.sleep();

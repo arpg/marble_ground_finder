@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
+  <arg name="fixed_frame" default="world"/>
   <arg name="robot_frame" default="base_link"/>
-  <arg name="octomap_topic" default="rough_octomap_full"/>
+  <arg name="octomap_topic" default="octomap_full"/>
+  <arg name="resolution" default="0.2"/>
 
   <node pkg="ground_finder" type="traversability_to_edt" name="traversability_to_edt" output="log">
     <remap from="rough_octomap" to="$(arg octomap_topic)"/>
@@ -13,14 +15,15 @@
     <param name="normal_z_threshold" value="0.92"/>
     <param name="normal_curvature_threshold" value="0.1"/>
     <param name="sensor_range" value="10.0"/>
-    <param name="truncation_distance" value = "3.0"/>
+    <param name="truncation_distance" value = "2.0"/>
     <param name="inflate_distance" value = "0.0"/>
     <param name="full_map_ticks" value = "1"/>
     <param name="filter_holes" value="false"/> <!-- true = holes are not traversable -->
     <param name="use_tf" value="true"/>
     <param name="robot_frame_id" value="$(arg robot_frame)"/>
-    <param name="fixed_frame_id" value="world"/>
-    <param name="max_roughness" value="0.5"/>
+    <param name="fixed_frame_id" value="$(arg fixed_frame)"/>
+    <param name="max_roughness" value="0.99"/>
+    <param name="resolution" value="$(arg resolution)"/>
     <!-- <param name="bbx_xy" value="8.0"/> -->
     <!-- <param name="bbx_z" value ="3.0"/> -->
     <param name="edt_padding" value="3"/>

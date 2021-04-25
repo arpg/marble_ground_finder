@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
 	<!-- <group ns="X2"> -->
+  <arg name="octomap_topic" default="octomap_binary"/>
+  <arg name="resolution" default="0.2"/>
   <node pkg="ground_finder" type="traversability_mapping" name="traversability_mapping">
-  	<remap from="octomap_binary" to="merged_map"/>
+  	<remap from="octomap_binary" to="$(arg octomap_topic)"/>
 	<!-- <remap from="octomap_binary" to="octomap_binary"/> -->
 	<remap from="edt" to="edt"/>
 
@@ -17,6 +19,7 @@
 	<param name="inflate_distance" value = "0.3"/>
 	<param name="full_map_ticks" value = "5"/>
 	<param name="filter_holes" value="true"/> <!-- true = holes are not traversable -->
+    <param name="resolution" value="$(arg resolution)"/>
 	<!-- <param name="bbx_xy" value="8.0"/> -->
 	<!-- <param name="bbx_z" value ="3.0"/> -->
   </node>
